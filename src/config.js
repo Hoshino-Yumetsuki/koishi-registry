@@ -27,7 +27,10 @@ const defaults = {
         'https://koishi-registry.github.io/categories/bundle.json',
 
     INSECURE_PACKAGES_URL:
-        'https://koishi-registry.github.io/insecures/index.json'
+        'https://koishi-registry.github.io/insecures/index.json',
+
+    INCREMENTAL_UPDATE: "false", // 是否开启增量更新，否则每次都全量扫描
+    NPMJS_CONCURRENT_REQUESTS: 80, // npmjs.org 官方源的并发请求限制
 }
 
 // 导出最终配置
@@ -42,7 +45,7 @@ export const config = {
     MAX_RETRIES: parseInt(process.env.MAX_RETRIES || defaults.MAX_RETRIES),
     OPTIMAL_WORKERS_MULTIPLIER: parseInt(
         process.env.OPTIMAL_WORKERS_MULTIPLIER ||
-            defaults.OPTIMAL_WORKERS_MULTIPLIER
+        defaults.OPTIMAL_WORKERS_MULTIPLIER
     ),
 
     // 数据库配置
@@ -67,5 +70,10 @@ export const config = {
         process.env.CATEGORIES_API_URL || defaults.CATEGORIES_API_URL,
 
     INSECURE_PACKAGES_URL:
-        process.env.INSECURE_PACKAGES_URL || defaults.INSECURE_PACKAGES_URL
+        process.env.INSECURE_PACKAGES_URL || defaults.INSECURE_PACKAGES_URL,
+
+    INCREMENTAL_UPDATE: process.env.INCREMENTAL_UPDATE
+        ? process.env.INCREMENTAL_UPDATE.toLowerCase() === 'true'
+        : defaults.INCREMENTAL_UPDATE === 'true',
+    NPMJS_CONCURRENT_REQUESTS: parseInt(process.env.NPMJS_CONCURRENT_REQUESTS || defaults.NPMJS_CONCURRENT_REQUESTS, 10),
 }

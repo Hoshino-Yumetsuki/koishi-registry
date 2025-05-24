@@ -43,26 +43,19 @@ export async function scanOnly() {
         const collection = await getPluginsCollection()
         const existingCount = await collection.countDocuments()
 
-        if (existingCount === 0) {
-            console.log('数据库为空，执行全量扫描...')
-            const plugins = await fetchKoishiPlugins()
-            if (plugins.length) {
-                await saveToDatabase(plugins)
-                await saveToFile(plugins)
-                console.log(`扫描完成，已保存 ${plugins.length} 个插件`)
-            }
-        } else {
-            console.log('执行增量更新...')
-            const updatedCount = await checkForUpdates()
-            const allPlugins = await loadFromDatabase()
-            await saveToFile(allPlugins)
-            console.log(
-                `更新完成，更新了 ${updatedCount} 个插件，总共 ${allPlugins.length} 个插件`
-            )
-        }
+        // 无论是否增量更新，都直接调用 checkForUpdates
+        // checkForUpdates 内部会根据配置判断是否清空数据库或执行增量逻辑
+        console.log('执行更新/扫描...')
+        const updatedCount = await checkForUpdates()
+        const allPlugins = await loadFromDatabase()
+        await saveToFile(allPlugins)
+        console.log(
+            `更新完成，更新了 ${updatedCount} 个插件，总共 ${allPlugins.length} 个插件`
+        )
     } catch (error) {
         console.error('扫描插件数据时出错:', error)
     } finally {
         await closeDB()
     }
 }
+

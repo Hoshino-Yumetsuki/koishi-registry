@@ -13,6 +13,7 @@
     "mongodb": "^6.12.0",
     "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",
+    "p-limit": "^6.2.0",
     "semver": "^7.6.3"
   },
   "devDependencies": {

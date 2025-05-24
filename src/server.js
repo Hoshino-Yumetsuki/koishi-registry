@@ -19,7 +19,7 @@ export class Server {
     async updateData() {
         console.log('正在从数据库更新数据...')
         try {
-            const updatedCount = await checkForUpdates()
+            const totalChanges = await checkForUpdates()
             const plugins = await loadFromDatabase()
 
             this.data = {
@@ -30,7 +30,7 @@ export class Server {
             }
 
             console.log(
-                `数据更新完成，更新了 ${updatedCount} 个插件，总共 ${plugins.length} 个插件`
+                `数据更新完成，共发生 ${totalChanges} 处变化 (新增/更新/移除)，当前总共 ${plugins.length} 个插件`
             )
         } catch (error) {
             console.error('更新数据时出错:', error)

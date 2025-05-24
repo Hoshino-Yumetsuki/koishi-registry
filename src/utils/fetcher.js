@@ -4,6 +4,10 @@ import { calculatePackageScore } from './scoring.js'
 import { getCategory, loadCategories } from './categories.js'
 import semver from 'semver'
 import { loadInsecurePackages } from './insecure.js'
+import pLimit from 'p-limit'
+
+// 针对 npmjs.org 官方源的并发限制器
+const npmjsLimiter = pLimit(config.NPMJS_CONCURRENT_REQUESTS)
 
 // 获取包的短名称
 function getPackageShortname(name) {
@@ -26,23 +30,65 @@ function isVerifiedPackage(name) {
 export async function fetchWithRetry(
     url,
     options,
-    retries = config.MAX_RETRIES
+    retries = config.MAX_RETRIES,
+    returnJson = true,
+    isNpmjsOfficialSource = false // 是否为 npmjs 官方源请求
 ) {
     for (let i = 0; i < retries; i++) {
         try {
-            const response = await fetch(url, {
-                ...options,
-                timeout: config.REQUEST_TIMEOUT
-            })
+            let response;
+            const fetchOperation = async () => {
+                const res = await fetch(url, {
+                    ...options,
+                    timeout: config.REQUEST_TIMEOUT
+                });
+                // 如果是 429 错误，抛出特殊错误以便重试逻辑处理
+                if (res.status === 429) {
+                    const retryAfter = res.headers.get('Retry-After');
+                    throw new Error(`429 Too Many Requests${retryAfter ? ` (Retry-After: ${retryAfter}s)` : ''}`, { cause: { status: 429, retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 0 } });
+                }
+                return res;
+            };
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`)
+            if (isNpmjsOfficialSource) {
+                // 如果是 npmjs 官方源请求，通过限制器执行
+                response = await npmjsLimiter(fetchOperation);
+            } else {
+                // 否则直接执行
+                response = await fetchOperation();
             }
 
-            return await response.json()
+            if (!response.ok && response.status !== 404) { // 404 不算网络错误，但其他非 2xx 状态码需要处理
+                throw new Error(`HTTP error! status: ${response.status} for ${url}`);
+            }
+
+            if (returnJson) {
+                return await response.json()
+            } else {
+                return response
+            }
         } catch (error) {
-            if (i === retries - 1) throw error
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const isLastAttempt = (i === retries - 1);
+            const status = error.cause?.status;
+            const retryAfter = error.cause?.retryAfter;
+
+            if (status === 429) {
+                const waitTime = retryAfter || Math.pow(2, i) * 1000; // 如果有 Retry-After，则使用，否则指数退避
+                console.warn(`Retry ${i + 1}/${retries} for ${url} failed with 429. Waiting ${waitTime / 1000}s...`);
+                await new Promise((resolve) => setTimeout(resolve, waitTime));
+            } else if (error.message.includes('ECONNRESET')) {
+                const waitTime = Math.pow(2, i) * 1000; // 指数退避
+                console.warn(`Retry ${i + 1}/${retries} for ${url} failed with ECONNRESET. Waiting ${waitTime / 1000}s...`);
+                await new Promise((resolve) => setTimeout(resolve, waitTime));
+            } else {
+                // 其他错误，直接抛出或简单重试
+                if (isLastAttempt) {
+                    console.error(`Final attempt failed for ${url}: ${error.message}`);
+                    throw error;
+                }
+                console.warn(`Retry ${i + 1}/${retries} for ${url} failed: ${error.message}. Retrying...`);
+                await new Promise((resolve) => setTimeout(resolve, 1000)); // 默认等待 1 秒
+            }
         }
     }
 }
@@ -50,6 +96,17 @@ export async function fetchWithRetry(
 // 导出 fetchPackageDetails
 export async function fetchPackageDetails(name, result) {
     try {
+        const npmjsOfficialUrl = `https://registry.npmjs.org/${name}` // npmjs 官方源地址
+        const officialResponse = await fetchWithRetry(npmjsOfficialUrl, { method: 'HEAD' }, 5, false, true);
+
+        if (officialResponse.status === 404) {
+            console.log(`Package ${name} not found on npmjs.org, skipping.`);
+            return null; // 包在官方源不存在，直接跳过
+        }
+        if (!officialResponse.ok) {
+            console.warn(`Warning: npmjs.org returned status ${officialResponse.status} for ${name}. Attempting to fetch from npmminnor.`);
+        }
+
         const pkgUrl = `${config.NPM_REGISTRY}/${name}`
         const pkgData = await fetchWithRetry(pkgUrl)
 
@@ -98,18 +155,18 @@ export async function fetchPackageDetails(name, result) {
         }))
 
         const contributors = Array.isArray(versionInfo.contributors) ? versionInfo.contributors.map(
-          (contributor) => {
-              if (typeof contributor === 'string') {
-                  return { name: contributor }
-              }
-              return {
-                  name: contributor.name || '',
-                  email: contributor.email || '',
-                  url: contributor.url || '',
-                  username: contributor.name || ''
-              }
-          }
-      ) : [];      
+            (contributor) => {
+                if (typeof contributor === 'string') {
+                    return { name: contributor }
+                }
+                return {
+                    name: contributor.name || '',
+                    email: contributor.email || '',
+                    url: contributor.url || '',
+                    username: contributor.name || ''
+                }
+            }
+        ) : [];
 
         const npmLink = name.startsWith('@')
             ? `${config.NPM_PACKAGE_URL}/${name}`
