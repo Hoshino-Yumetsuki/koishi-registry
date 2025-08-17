@@ -19,6 +19,8 @@ jobs:
         steps:
             - name: Checkout Repository
               uses: actions/checkout@v4
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -29,15 +31,6 @@ jobs:
               run: |
                   corepack enable
                   corepack use yarn
-
-            - name: Setup SSH
-              env:
-                  DEPLOY_KEY: ${{ secrets.DEPLOY_PRIVATE_KEY }}
-              run: |
-                  mkdir -p ~/.ssh/
-                  echo "$DEPLOY_KEY" > ~/.ssh/id_rsa
-                  chmod 600 ~/.ssh/id_rsa
-                  ssh-keyscan github.com >> ~/.ssh/known_hosts
 
             - name: Setup Market
               run: |
@@ -58,6 +51,7 @@ jobs:
 
             - name: Deploy to Pages Branch
               env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
               run: |
                   cp public/index.json /tmp/index.json
@@ -69,11 +63,16 @@ jobs:
 
                   echo "" > .nojekyll
 
-                  echo "$CUSTOM_DOMAIN" > CNAME
+                  if [ -n "$CUSTOM_DOMAIN" ]; then
+                    echo "$CUSTOM_DOMAIN" > CNAME
+                  fi
 
-                  git remote set-url origin git@github.com:${GITHUB_REPOSITORY}.git
+                  # 使用 HTTPS 而不是 SSH
+                  git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
 
                   git add -f index.json .nojekyll
-                  git add -f index.json CNAME .nojekyll
+                  if [ -f CNAME ]; then
+                    git add -f CNAME
+                  fi
                   git commit -m "Update market" || true
                   git push -f origin pages
