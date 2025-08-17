@@ -2,10 +2,11 @@ name: Update Market
 
 on:
     schedule:
-        - cron: '*/15 * * * *' # 每10分钟运行一次
+        - cron: '*/15 * * * *' # 每15分钟运行一次
     push:
         branches:
             - main
+    workflow_dispatch: # 添加手动触发功能
 
 jobs:
     update-market:
