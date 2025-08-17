@@ -4,6 +4,7 @@ import { loadCategories } from './categories.js'
 import { fetchWithRetry, fetchPackageDetails } from './fetcher.js'
 import semver from 'semver'
 import { loadInsecurePackages } from './insecure.js'
+import { readUpdateCounter, incrementUpdateCounter, resetUpdateCounter } from './update-counter.js'
 
 export async function checkForUpdates() {
     // 记录开始时间
@@ -12,10 +13,29 @@ export async function checkForUpdates() {
     let updatedCount = 0
     let removedCount = 0
 
-    if (!config.INCREMENTAL_UPDATE) {
-        console.log('配置为全量更新，正在清空数据库...')
-        await collection.deleteMany({}) // 清空所有文档
-        console.log('数据库已清空。')
+    // 读取当前更新计数
+    const currentCount = readUpdateCounter();
+    
+    // 判断是否需要进行全量更新
+    // 1. 如果配置为全量更新，直接进行全量更新
+    // 2. 如果配置为增量更新，但当前计数达到了设定的次数，也进行全量更新
+    const shouldDoFullUpdate = !config.INCREMENTAL_UPDATE || 
+        (config.INCREMENTAL_UPDATE_TIMES > 0 && currentCount >= config.INCREMENTAL_UPDATE_TIMES);
+    
+    if (shouldDoFullUpdate) {
+        if (!config.INCREMENTAL_UPDATE) {
+            console.log('配置为全量更新，正在清空数据库...');
+        } else {
+            console.log(`已完成 ${currentCount} 次增量更新，根据配置进行全量更新，正在清空数据库...`);
+            // 重置计数器
+            resetUpdateCounter();
+        }
+        await collection.deleteMany({}); // 清空所有文档
+        console.log('数据库已清空。');
+    } else {
+        // 增加计数
+        const newCount = incrementUpdateCounter();
+        console.log(`执行增量更新 (${newCount}/${config.INCREMENTAL_UPDATE_TIMES})`);
     }
 
     const params = new URLSearchParams({

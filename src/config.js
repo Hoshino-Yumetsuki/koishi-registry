@@ -29,7 +29,8 @@ const defaults = {
     INSECURE_PACKAGES_URL:
         'https://koishi-registry.github.io/insecures/index.json',
 
-    INCREMENTAL_UPDATE: "false", // 是否开启增量更新，否则每次都全量扫描
+    INCREMENTAL_UPDATE: "true", // 是否开启增量更新，否则每次都全量扫描
+    INCREMENTAL_UPDATE_TIMES: "4", // 每进行多少次增量更新后执行一次全量更新
     NPMJS_CONCURRENT_REQUESTS: 80, // npmjs.org 官方源的并发请求限制
 }
 
@@ -75,5 +76,6 @@ export const config = {
     INCREMENTAL_UPDATE: process.env.INCREMENTAL_UPDATE
         ? process.env.INCREMENTAL_UPDATE.toLowerCase() === 'true'
         : defaults.INCREMENTAL_UPDATE === 'true',
+    INCREMENTAL_UPDATE_TIMES: parseInt(process.env.INCREMENTAL_UPDATE_TIMES || defaults.INCREMENTAL_UPDATE_TIMES, 10),
     NPMJS_CONCURRENT_REQUESTS: parseInt(process.env.NPMJS_CONCURRENT_REQUESTS || defaults.NPMJS_CONCURRENT_REQUESTS, 10),
 }
