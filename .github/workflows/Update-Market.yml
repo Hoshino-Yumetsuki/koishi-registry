@@ -11,6 +11,11 @@ on:
 jobs:
     update-market:
         runs-on: ubuntu-latest
+        services:
+            mongodb:
+                image: mongo:4.4
+                ports:
+                    - 27017:27017
         steps:
             - name: Checkout Repository
               uses: actions/checkout@v4
@@ -48,8 +53,9 @@ jobs:
 
             - name: Sync
               env:
-                  MONGODB_URI: ${{ secrets.MONGODB_URI }}
+                  MONGODB_URI: mongodb://localhost:27017
                   CATEGORIES_API_BASE: ${{ secrets.CATEGORIES_API_BASE }}
+                  INCREMENTAL_UPDATE: "false"
               run: |
                   yarn scan
 
