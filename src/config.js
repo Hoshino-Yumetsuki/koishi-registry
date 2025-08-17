@@ -30,7 +30,7 @@ const defaults = {
         'https://koishi-registry.github.io/insecures/index.json',
 
     INCREMENTAL_UPDATE: "true", // 是否开启增量更新，否则每次都全量扫描
-    INCREMENTAL_UPDATE_TIMES: "3", // 每进行多少次增量更新后执行一次全量更新
+    INCREMENTAL_UPDATE_TIMES: "16", // 每进行多少次增量更新后执行一次全量更新  16代表4小时全量更新一次
     NPMJS_CONCURRENT_REQUESTS: 80, // npmjs.org 官方源的并发请求限制
 }
 
