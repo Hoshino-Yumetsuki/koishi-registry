@@ -14,7 +14,7 @@ export async function checkForUpdates() {
     let removedCount = 0
 
     // 读取当前更新计数
-    const currentCount = readUpdateCounter();
+    const currentCount = await readUpdateCounter();
     
     // 判断是否需要进行全量更新
     // 1. 如果配置为全量更新，直接进行全量更新
@@ -28,13 +28,13 @@ export async function checkForUpdates() {
         } else {
             console.log(`已完成 ${currentCount} 次增量更新，根据配置进行全量更新，正在清空数据库...`);
             // 重置计数器
-            resetUpdateCounter();
+            await resetUpdateCounter();
         }
         await collection.deleteMany({}); // 清空所有文档
         console.log('数据库已清空。');
     } else {
         // 增加计数
-        const newCount = incrementUpdateCounter();
+        const newCount = await incrementUpdateCounter();
         console.log(`执行增量更新 (${newCount}/${config.INCREMENTAL_UPDATE_TIMES})`);
     }
 
