@@ -6,7 +6,7 @@ on:
     push:
         branches:
             - main
-    workflow_dispatch: # 添加手动触发功能
+    workflow_dispatch: # 手动触发
 
 jobs:
     update-market:
@@ -67,7 +67,6 @@ jobs:
                     echo "$CUSTOM_DOMAIN" > CNAME
                   fi
 
-                  # 使用 HTTPS 而不是 SSH
                   git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
 
                   git add -f index.json .nojekyll
