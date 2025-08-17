@@ -29,7 +29,7 @@ const defaults = {
     INSECURE_PACKAGES_URL:
         'https://koishi-registry.github.io/insecures/index.json',
 
-    INCREMENTAL_UPDATE: "true", // 是否开启增量更新，否则每次都全量扫描
+    INCREMENTAL_UPDATE: "false", // 是否开启增量更新，否则每次都全量扫描
     NPMJS_CONCURRENT_REQUESTS: 80, // npmjs.org 官方源的并发请求限制
 }
 
