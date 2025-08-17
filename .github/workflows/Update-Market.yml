@@ -57,11 +57,21 @@ jobs:
                   CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
               run: |
                   cp public/index.json /tmp/index.json
+                  
+                  # 如果存在更新计数器文件，也保存它
+                  if [ -f .update-counter ]; then
+                    cp .update-counter /tmp/.update-counter
+                  fi
 
                   git checkout --orphan pages
                   git reset --hard
 
                   cp /tmp/index.json index.json
+                  
+                  # 恢复更新计数器文件
+                  if [ -f /tmp/.update-counter ]; then
+                    cp /tmp/.update-counter .update-counter
+                  fi
 
                   echo "" > .nojekyll
 
@@ -70,6 +80,10 @@ jobs:
                   git remote set-url origin git@github.com:${GITHUB_REPOSITORY}.git
 
                   git add -f index.json .nojekyll
+                  # 添加更新计数器文件
+                  if [ -f .update-counter ]; then
+                    git add -f .update-counter
+                  fi
                   git add -f index.json CNAME .nojekyll
                   git commit -m "Update market" || true
                   git push -f origin pages
