@@ -10,6 +10,7 @@ import semver from 'semver'
 import { loadInsecurePackages, isPackageInsecure } from './insecure'
 import { validatePackage } from './validator'
 import pLimit from 'p-limit'
+import { analyzePackageDependencies } from './dependency-analyzer'
 
 // 针对 npmjs.org 官方源的并发限制器
 const npmjsLimiter = pLimit(config.NPMJS_CONCURRENT_REQUESTS)
@@ -350,10 +351,26 @@ export async function fetchPackageDetails(
       lastMonth: result.downloads?.all || 0
     }
 
-    // 检查包是否不安全
-    const isInsecure =
+    // 检查包是否不安全 - 使用深度依赖分析
+    // First check manifest and shallow dependencies
+    let isInsecure =
       (await isPackageInsecure(name, versionInfo)) ||
       koishiManifest.insecure === true
+
+    // Perform deep dependency analysis
+    let analysisResult = null
+    try {
+      analysisResult = await analyzePackageDependencies(name, latestVersion)
+      // Update insecure status if deep analysis finds insecure packages
+      if (analysisResult.isInsecure) {
+        isInsecure = true
+      }
+    } catch (error) {
+      console.warn(
+        `Warning: Deep dependency analysis failed for ${name}:`,
+        error
+      )
+    }
 
     return {
       category: result.category || 'other',
@@ -394,7 +411,21 @@ export async function fetchPackageDetails(
       dependents: 0,
       downloads,
       insecure: isInsecure,
-      ignored: false
+      ignored: false,
+      // Add security analysis metadata
+      securityAnalysis: analysisResult
+        ? {
+            analyzed: true,
+            analyzedAt: analysisResult.analyzedAt.toISOString(),
+            insecurePackages: analysisResult.insecurePackages,
+            hasError: !!analysisResult.error
+          }
+        : {
+            analyzed: false,
+            analyzedAt: null,
+            insecurePackages: [],
+            hasError: false
+          }
     }
   } catch (error) {
     console.error(`Error fetching ${name}:`, error)

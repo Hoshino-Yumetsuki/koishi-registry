@@ -140,6 +140,14 @@ export async function checkForUpdates() {
     ])
   )
 
+  // 创建现有插件的安全分析状态映射
+  const existingAnalysisStatus = new Map(
+    currentExistingPlugins.map((plugin) => [
+      plugin.package.name,
+      plugin.securityAnalysis?.analyzed || false
+    ])
+  )
+
   const packagesToUpdate = []
   const categories = await loadCategories()
 
@@ -153,12 +161,14 @@ export async function checkForUpdates() {
     const latestVersion = result.package.version
     if (!latestVersion) continue
     const currentVersion = existingVersions.get(packageName)
+    const hasAnalysis = existingAnalysisStatus.get(packageName)
 
-    // 如果是全量更新模式，或者包是新增的，或者版本有更新，则加入待更新列表
+    // 如果是全量更新模式，或者包是新增的，或者版本有更新，或者没有安全分析，则加入待更新列表
     if (
       !config.INCREMENTAL_UPDATE ||
       !currentVersion ||
-      semver.gt(latestVersion, currentVersion)
+      semver.gt(latestVersion, currentVersion) ||
+      !hasAnalysis
     ) {
       packagesToUpdate.push({
         name: packageName,
