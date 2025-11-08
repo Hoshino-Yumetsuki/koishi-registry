@@ -19,7 +19,20 @@ const analysisCache = new Map<string, AnalysisResult>()
 
 /**
  * Deep analyze package dependencies for insecure packages
- * This function traverses the entire dependency tree and checks each package
+ *
+ * This function performs a comprehensive security analysis by:
+ * 1. Checking the package itself against the insecure list
+ * 2. Analyzing all direct dependencies
+ * 3. Recursively traversing transitive dependencies up to maxDepth levels
+ *
+ * The analysis checks for:
+ * - Packages in the external insecure packages list
+ * - Hardcoded unsafe dependencies (sharp, puppeteer, canvas)
+ * - Transitive dependencies that may contain insecure packages
+ *
+ * @param packageName - The name of the package to analyze
+ * @param version - The specific version to analyze
+ * @returns AnalysisResult containing security status and found insecure packages
  */
 export async function analyzePackageDependencies(
   packageName: string,
@@ -117,6 +130,16 @@ export async function analyzePackageDependencies(
 
 /**
  * Recursively traverse dependencies to find insecure packages
+ *
+ * Uses depth-first search with cycle detection to explore the dependency tree.
+ * Processes dependencies in batches to avoid overwhelming the NPM registry API.
+ *
+ * @param dependencies - Map of dependency names to version ranges
+ * @param insecurePackages - Set of known insecure package names
+ * @param result - Accumulator for analysis results
+ * @param visited - Set of already visited package@version to prevent cycles
+ * @param currentDepth - Current depth in the dependency tree
+ * @param maxDepth - Maximum depth to traverse (prevents excessive API calls)
  */
 async function traverseDependencies(
   dependencies: Record<string, string>,
