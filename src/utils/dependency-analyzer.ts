@@ -1,6 +1,11 @@
-import { fetchWithRetry } from './fetcher'
-import { config } from '../config'
 import { loadInsecurePackages } from './insecure'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
+
+const execFileAsync = promisify(execFile)
 
 const UNSAFE_DEPENDENCIES = new Set(['sharp', 'puppeteer', 'canvas'])
 
@@ -12,23 +17,24 @@ interface AnalysisResult {
 }
 
 /**
- * Cache for analyzed packages to avoid redundant API calls
+ * Cache for analyzed packages to avoid redundant installations
  * Key: packageName@version, Value: analysis result
  */
 const analysisCache = new Map<string, AnalysisResult>()
 
 /**
- * Deep analyze package dependencies for insecure packages
+ * Deep analyze package dependencies for insecure packages using actual package installation
  *
  * This function performs a comprehensive security analysis by:
- * 1. Checking the package itself against the insecure list
- * 2. Analyzing all direct dependencies
- * 3. Recursively traversing transitive dependencies up to maxDepth levels
+ * 1. Creating an isolated temporary directory
+ * 2. Installing the package with yarn (similar to WebContainer approach)
+ * 3. Analyzing the complete installed dependency tree from node_modules
+ * 4. Checking all dependencies against the insecure packages list
  *
  * The analysis checks for:
  * - Packages in the external insecure packages list
  * - Hardcoded unsafe dependencies (sharp, puppeteer, canvas)
- * - Transitive dependencies that may contain insecure packages
+ * - All transitive dependencies as actually installed by yarn
  *
  * @param packageName - The name of the package to analyze
  * @param version - The specific version to analyze
@@ -54,6 +60,8 @@ export async function analyzePackageDependencies(
     analyzedAt: new Date()
   }
 
+  let tempDir: string | null = null
+
   try {
     // Load the insecure packages list
     const insecurePackages = await loadInsecurePackages()
@@ -66,54 +74,79 @@ export async function analyzePackageDependencies(
       return result
     }
 
-    // Fetch package metadata to get dependencies
-    const pkgUrl = `${config.NPM_REGISTRY}/${packageName}`
-    const pkgData = (await fetchWithRetry(pkgUrl)) as any
+    // Create a temporary directory for isolated installation
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koishi-security-'))
 
-    if (!pkgData || !pkgData.versions || !pkgData.versions[version]) {
-      result.error = 'Package version not found'
+    // Create a minimal package.json
+    const packageJson = {
+      name: 'security-analysis-temp',
+      version: '1.0.0',
+      private: true,
+      dependencies: {
+        [packageName]: version
+      }
+    }
+
+    await fs.writeFile(
+      path.join(tempDir, 'package.json'),
+      JSON.stringify(packageJson, null, 2)
+    )
+
+    // Install the package with yarn in the temporary directory
+    // Use --production to avoid devDependencies and --ignore-scripts for security
+    try {
+      await execFileAsync(
+        'yarn',
+        ['install', '--production', '--ignore-scripts', '--non-interactive'],
+        {
+          cwd: tempDir,
+          timeout: 120000, // 2 minutes timeout
+          env: {
+            ...process.env,
+            NODE_ENV: 'production'
+          }
+        }
+      )
+    } catch (installError) {
+      // If yarn install fails, record the error but don't fail completely
+      console.warn(
+        `Warning: yarn install failed for ${packageName}@${version}: ${installError.message}`
+      )
+      result.error = `Installation failed: ${installError.message}`
       analysisCache.set(cacheKey, result)
       return result
     }
 
-    const versionInfo = pkgData.versions[version]
+    // Analyze the installed node_modules directory
+    const nodeModulesPath = path.join(tempDir, 'node_modules')
 
-    // Collect all dependencies
-    const allDeps: Record<string, string> = {
-      ...versionInfo.dependencies,
-      ...versionInfo.peerDependencies,
-      ...versionInfo.optionalDependencies
+    try {
+      await fs.access(nodeModulesPath)
+    } catch {
+      // node_modules doesn't exist, package might have no dependencies
+      analysisCache.set(cacheKey, result)
+      return result
     }
 
-    // First, check direct dependencies for unsafe packages
-    for (const depName of Object.keys(allDeps)) {
-      if (UNSAFE_DEPENDENCIES.has(depName)) {
+    // Get all installed packages from node_modules
+    const installedPackages = await getInstalledPackages(nodeModulesPath)
+
+    // Check each installed package against insecure list and unsafe dependencies
+    for (const installedPkg of installedPackages) {
+      if (UNSAFE_DEPENDENCIES.has(installedPkg)) {
         result.isInsecure = true
-        if (!result.insecurePackages.includes(depName)) {
-          result.insecurePackages.push(depName)
+        if (!result.insecurePackages.includes(installedPkg)) {
+          result.insecurePackages.push(installedPkg)
         }
       }
 
-      // Check if dependency is in the insecure list
-      if (insecurePackages.has(depName)) {
+      if (insecurePackages.has(installedPkg)) {
         result.isInsecure = true
-        if (!result.insecurePackages.includes(depName)) {
-          result.insecurePackages.push(depName)
+        if (!result.insecurePackages.includes(installedPkg)) {
+          result.insecurePackages.push(installedPkg)
         }
       }
     }
-
-    // Deep traverse dependencies (with depth limit to prevent infinite loops)
-    const visited = new Set<string>([cacheKey])
-    const maxDepth = 3 // Limit depth to avoid excessive API calls
-    await traverseDependencies(
-      allDeps,
-      insecurePackages,
-      result,
-      visited,
-      0,
-      maxDepth
-    )
 
     analysisCache.set(cacheKey, result)
     return result
@@ -125,108 +158,92 @@ export async function analyzePackageDependencies(
     result.error = error.message
     analysisCache.set(cacheKey, result)
     return result
+  } finally {
+    // Clean up temporary directory
+    if (tempDir) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true })
+      } catch (cleanupError) {
+        console.warn(
+          `Warning: Failed to cleanup temp directory ${tempDir}:`,
+          cleanupError
+        )
+      }
+    }
   }
 }
 
 /**
- * Recursively traverse dependencies to find insecure packages
+ * Recursively get all installed package names from node_modules
  *
- * Uses depth-first search with cycle detection to explore the dependency tree.
- * Processes dependencies in batches to avoid overwhelming the NPM registry API.
- *
- * @param dependencies - Map of dependency names to version ranges
- * @param insecurePackages - Set of known insecure package names
- * @param result - Accumulator for analysis results
- * @param visited - Set of already visited package@version to prevent cycles
- * @param currentDepth - Current depth in the dependency tree
- * @param maxDepth - Maximum depth to traverse (prevents excessive API calls)
+ * @param nodeModulesPath - Path to the node_modules directory
+ * @param packages - Accumulator for package names
+ * @returns Array of all installed package names
  */
-async function traverseDependencies(
-  dependencies: Record<string, string>,
-  insecurePackages: Set<string>,
-  result: AnalysisResult,
-  visited: Set<string>,
-  currentDepth: number,
-  maxDepth: number
-): Promise<void> {
-  if (currentDepth >= maxDepth) {
-    return
-  }
+async function getInstalledPackages(
+  nodeModulesPath: string,
+  packages: Set<string> = new Set()
+): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(nodeModulesPath, { withFileTypes: true })
 
-  const depEntries = Object.entries(dependencies)
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue
+      }
 
-  // Process dependencies in batches to avoid overwhelming the API
-  const batchSize = 10
-  for (let i = 0; i < depEntries.length; i += batchSize) {
-    const batch = depEntries.slice(i, i + batchSize)
+      if (entry.name.startsWith('@')) {
+        // Scoped package, need to go one level deeper
+        const scopePath = path.join(nodeModulesPath, entry.name)
+        const scopedEntries = await fs.readdir(scopePath, {
+          withFileTypes: true
+        })
 
-    await Promise.all(
-      batch.map(async ([depName, versionRange]) => {
-        // Check if this dependency is unsafe
-        if (UNSAFE_DEPENDENCIES.has(depName)) {
-          result.isInsecure = true
-          if (!result.insecurePackages.includes(depName)) {
-            result.insecurePackages.push(depName)
-          }
-        }
+        for (const scopedEntry of scopedEntries) {
+          if (scopedEntry.isDirectory()) {
+            const packageName = `${entry.name}/${scopedEntry.name}`
+            packages.add(packageName)
 
-        // Check if dependency is in the insecure list
-        if (insecurePackages.has(depName)) {
-          result.isInsecure = true
-          if (!result.insecurePackages.includes(depName)) {
-            result.insecurePackages.push(depName)
-          }
-        }
-
-        // Skip already visited packages to prevent cycles
-        const depKey = `${depName}@${versionRange}`
-        if (visited.has(depKey)) {
-          return
-        }
-        visited.add(depKey)
-
-        try {
-          // Fetch the dependency's metadata
-          const depUrl = `${config.NPM_REGISTRY}/${depName}`
-          const depData = (await fetchWithRetry(depUrl)) as any
-
-          if (!depData || !depData['dist-tags'] || !depData.versions) {
-            return
-          }
-
-          // Get the latest version or a compatible version
-          const latestVersion = depData['dist-tags'].latest
-          if (!latestVersion || !depData.versions[latestVersion]) {
-            return
-          }
-
-          const depVersionInfo = depData.versions[latestVersion]
-
-          // Get nested dependencies
-          const nestedDeps: Record<string, string> = {
-            ...depVersionInfo.dependencies
-          }
-
-          // Continue traversing
-          if (Object.keys(nestedDeps).length > 0) {
-            await traverseDependencies(
-              nestedDeps,
-              insecurePackages,
-              result,
-              visited,
-              currentDepth + 1,
-              maxDepth
+            // Check for nested node_modules
+            const nestedNodeModules = path.join(
+              scopePath,
+              scopedEntry.name,
+              'node_modules'
             )
+            try {
+              await fs.access(nestedNodeModules)
+              await getInstalledPackages(nestedNodeModules, packages)
+            } catch {
+              // No nested node_modules, skip
+            }
           }
-        } catch (error) {
-          // Silently ignore errors for individual dependencies
-          // to avoid breaking the entire analysis
-          console.warn(
-            `Warning: Could not analyze dependency ${depName}: ${error.message}`
-          )
         }
-      })
+      } else if (entry.name !== '.bin' && entry.name !== '.yarn-integrity') {
+        // Regular package
+        packages.add(entry.name)
+
+        // Check for nested node_modules
+        const nestedNodeModules = path.join(
+          nodeModulesPath,
+          entry.name,
+          'node_modules'
+        )
+        try {
+          await fs.access(nestedNodeModules)
+          await getInstalledPackages(nestedNodeModules, packages)
+        } catch {
+          // No nested node_modules, skip
+        }
+      }
+    }
+
+    return Array.from(packages)
+  } catch (error) {
+    console.warn(
+      `Warning: Error reading node_modules at ${nodeModulesPath}:`,
+      error
     )
+    return Array.from(packages)
   }
 }
 
