@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",
-    "@types/node": "^24.3.0",
+    "@types/node": "^25.0.3",
     "@types/semver": "^7.7.0",
     "rolldown": "1.0.0-beta.34",
     "typescript": "^5.9.2"
