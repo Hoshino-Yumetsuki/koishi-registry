@@ -735,7 +735,7 @@ __metadata:
     mongodb: "npm:^6.18.0"
     node-cron: "npm:^4.2.1"
     node-fetch: "npm:^3.3.2"
-    p-limit: "npm:^7.1.0"
+    p-limit: "npm:^7.2.0"
     rolldown: "npm:1.0.0-beta.34"
     semver: "npm:^7.7.2"
     typescript: "npm:^5.9.2"
@@ -894,12 +894,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"p-limit@npm:^7.1.0":
-  version: 7.1.0
-  resolution: "p-limit@npm:7.1.0"
+"p-limit@npm:^7.2.0":
+  version: 7.2.0
+  resolution: "p-limit@npm:7.2.0"
   dependencies:
     yocto-queue: "npm:^1.2.1"
-  checksum: 10c0/5633b98e90ebf7b8df7b8802b6dd73511165d625fbaaca121b58875609907346f428662f9a80c910cad7e9ba966b175db69a8765993cdd59a99fe566711221b7
+  checksum: 10c0/18e5ea305c31fdc0cf5260da7b63adfd46748cd72d4b40a31a13bd23eeece729c9308047fb5d848d7fa006d1b2fc2f36bb0d9dd173a300c38cd6dc1ed3355382
   languageName: node
   linkType: hard
 
